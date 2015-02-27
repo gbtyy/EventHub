@@ -1,10 +1,10 @@
 # EventHub
-EventHub enables companies to do cross devices event tracking. The events will be joined by their associated users at the server, and the server also comes with a built-in dashboard which can be used to answer the following common business questions
-* what is my funnel conversion rate
-* what is my cohorted KPI retention
-* which variant in my A/B testing has higher conversion rate
+EventHub enables companies to do cross device event tracking. Events are joined by their associated user on EventHub and can be visualized by the built-in dashboard to answer the following common business questions
+* what is my funnel conversion rate?
+* what is my cohorted KPI retention?
+* which variant in my A/B test has a higher conversion rate?
 
-Most important of all, it is free and open sourced.
+Most important of all, EventHub is free and open source.
 
 **Table of Contents**
 - [Quick Start](#quick-start)
@@ -15,7 +15,7 @@ Most important of all, it is free and open sourced.
 
 ## Quick Start
 ### Playground
-A [demo server](http://codecademy:codecademy@54.193.159.140/) is available on Heroku and the username/password to access the dashboard is `codecademy/codecademy`.
+A [demo server](http://codecademy:codecademy@floating-mesa-9408.herokuapp.com/) is available on Heroku and the username/password to access the dashboard is `codecademy/codecademy`.
 
 - [Example funnel query](http://codecademy:codecademy@54.193.159.140/?start_date=20130101&end_date=20130107&num_days_to_complete_funnel=7&funnel_steps%5B%5D=receive_email&funnel_steps%5B%5D=view_track_page&funnel_steps%5B%5D=finish_course&type=funnel)
 - [Example cohort query](http://codecademy:codecademy@54.193.159.140/?start_date=20130101&end_date=20130107&row_event_type=receive_email&column_event_type=start_track&num_days_per_row=1&num_columns=11&type=cohort)
@@ -36,7 +36,7 @@ git push heroku master
 heroku open
 ```
 
-### Required dependency
+### Required dependencies
 * [java sdk7](http://www.oracle.com/technetwork/java/javase/downloads/jdk7-downloads-1880260.html)
 * [maven](http://maven.apache.org)
 
@@ -164,27 +164,27 @@ java -jar ${JMETER_DIR}/bin/ApacheJMeter.jar -JnumThreads=10 -n -t jmeter.jmx -p
 ## Server
 
 ### Key observations & design decisions
-Our goal is to build something usable on a single machine with reasonably large SSD drive. Let's say, hypotheitcally, the server receives 100M events monthly (might cost you few thousand dollars per month to use SAAS provider), and each event is 500 bytes without compression. In the situation, storing all the events likely only takes you few hundreds GB to store all your data with compression, and chances are, only data in recent months are of interest.
+Our goal is to build something usable on a single machine with a reasonably large SSD drive. Let's say, hypothetically, the server receives 100M events monthly (might cost you few thousand dollars per month to use SAAS provider), and each event is 500 bytes without compression. In this situation, storing all the events likely only takes you few hundreds GB with compression, and chances are, only the data in recent months are of interest.
 
-Also, to efficiently run basic funnel and cohort queries without filtering, only two forward indices are needed, event index sharded by event types and event index sharded by users. Therefore, our strategy is to make those two indices as small as possible to fit in memory, and if the client want to do filtering for events, we build a bloomfilter rejects most of the non exact-match. Imagine we are running another hypothetical query while assuming both indices and the bloomfilters can be fitted in memory. Say there are 1M events that cannot rejected and need to hit the disk, assuming each SSD disk read is 16 microseconds, we are talking about sub-minute query time, while assuming none of the data are in memory. In practice, the situation is likely much better as we cache all the recently hit records, and most of the queries likely only concern about most recent data.
+Also, to efficiently run basic funnel and cohort queries without filtering, only two forward indices are needed, event index sharded by event types and event index sharded by users. Therefore, our strategy is to make those two indices as small as possible to fit in memory, and if the client wants to do filtering for events, we build a bloomfilter to reject most of the non exact-match. Imagine we are running another hypothetical query while assuming both indices and the bloomfilters can be fit in memory. Say there are 1M events that cannot be rejected and need to hit the disk, assuming each SSD disk read is 16 microseconds, we are talking about sub-minute query time, while assuming none of the data are in memory. In practice, this situation is likely much better as we cache all the recently hit records, and most of the queries likely only care the most recent data.
 
-To simplifies the design of the server and store indices compactly so that they will fit in memory, we made the following two assumptions.
+To simplify the design of the server and store indices compactly so that they fit in memory, we made the following two assumptions.
 
-1. Times are associated to the events by the server when received
+1. Times are associated to events when the server receives the an event
 2. Date is the finest level of granularity
 
-With the above two assumptions, we can rely on server generated monotonically increasing id to maintain the total order for the events. In addition, as long as we track the id of the first event in any given date, we do not need to store the time information in the indices (which greatly reduce the size of the indices). The direct implication for those assumptions are, first, if the client chose to cache some events locally and sent them later, the timing for those events will be recorded as the server receives them, not when the user made those actions; second, though the server maintains the total ordering of all events, it cannot answer questions like what is the conversion rate for the given funnel between 2pm and 3pm on a given date.
+With the above two assumptions, we can rely on the server generated monotonically increasing id to maintain the total order for the events. In addition, as long as we track the id of the first event in any given date, we do not need to store the time information in the indices (which greatly reduces the size of the indices). The direct implication for those assumptions are, first, if the client chose to cache some events locally and sent them later, the timing for those events will be recorded as the server receives them, not when the user made those actions; second, though the server maintains the total ordering of all events, it cannot answer questions like what is the conversion rate for the given funnel between 2pm and 3pm on a given date.
 
-Lastly, for both indices, since they are sharded by event types or users, we expect the size of the indices can be significantly further reduced with proper compression.
+Lastly, for both indices, since they are sharded by event types or users, we can expect the size of the indices to reduce significantly with proper compression.
 
 ### Architecture
 At the highest level, `com.codecademy.evenhub.web.EventHubHandler` is the main entry point. It runs a [Jetty](http://www.eclipse.org/jetty) server, reflectively collects supported commands under `com.codecademy.evenhub.web.commands`, handles JSONP request transparently, handles requests to static resources like the dashboard, and most importantly, act as a proxy which translates http request and respones to and from method calls to `com.codecademy.evenhub.EventHub`.
 
 `com.codecademy.evenhub.EventHub` can be thought of as a facade to the key components of `UserStorage`, `EventStorage`, `ShardedEventIndex`, `DatedEventIndex`, `UserEventIndex` and `PropertiesIndex`.
 
-For `UserStorage` and `EventStorage`, at the lowest level, we implemented `Journal{User,Event}Storage` backed by [HawtJournal](https://github.com/fusesource/hawtjournal/) to store underlying records reliably. In addition, when clients is quering records which cannot be filtered by the supported indices, the server will loop through all tne potential hits, look up the properties from the `Journal` and then filter. For better performance, there are also decorators for each storage like `Cached{User,Event}Storage` to support caching and `BloomFiltered{User,Event}Storage` to support fast rejection for filters like `ExactMatch`. Please also beware that each `Storage` maintains a monotonically increasing counter as the internal id generator for each event and user received.
+For `UserStorage` and `EventStorage`, at the lowest level, we implemented `Journal{User,Event}Storage` backed by [HawtJournal](https://github.com/fusesource/hawtjournal/) to store underlying records reliably. In addition, when clients are quering records which cannot be filtered by the supported indices, the server will loop through all the potential hits, look up the properties from the `Journal` and then filter accordingly. For better performance, there are also decorators for each storage like `Cached{User,Event}Storage` to support caching and `BloomFiltered{User,Event}Storage` to support fast rejection for filters like `ExactMatch`. Please also beware that each `Storage` maintains a monotonically increasing counter as the internal id generator for each event and user received.
 
-To make the funnel and corhot queries fast, `EventHub` also maintains three indices, `ShardedEventIndex`, `UserEventIndex`, and `DatedEventIndex` behind the scene. `DatedEventIndex` simply tracks the mapping from a given date, the id of the first event received in that day. `ShardedEventIndex` can be thought of as sorted event ids sharded by event type. `UserEventIndex` can be thought of as sorted event ids sharded by users.
+To make the funnel and cohort queries fast, `EventHub` also maintains three indices, `ShardedEventIndex`, `UserEventIndex`, and `DatedEventIndex` behind the scene. `DatedEventIndex` simply tracks the mapping from a given date, the id of the first event received in that day. `ShardedEventIndex` can be thought of as sorted event ids sharded by event type. `UserEventIndex` can be thought of as sorted event ids sharded by users.
 
 Lastly, `EventHub` maintains a `PropertiesIndex` backed by [LevelDB Jni](https://github.com/fusesource/leveldbjni) to track what properties keys are available for a given event type and what properties values are available for a given event type and a property key.
 
@@ -223,7 +223,7 @@ In the experiment, the server was bootstrapped differently. Instead of using the
 |---------------------------|-----------------|------|
 | ShardedEventIndex         | 424Mb           | (data size) + (index size) <br>= (event id size * number of events) + negligible<br>= (8 * 53M) |
 | UserEventIndex            | 722Mb           | (data size) + (index size) <br>= (event id size * number of events) + (index entry size * number of users)<br>= (8 * 53M) + ((numPointersPerIndexEntry * 2 + 1) * 8 + 4) * 2.4M)<br>= (8 * 53M) + (124 * 2.4M) |
-| BloomFitleredEventStorage | 848Mb           | (bloomfilter size) * (number of events) <br>= 16 * 53M |
+| BloomFilteredEventStorage | 848Mb           | (bloomfilter size) * (number of events) <br>= 16 * 53M |
 
 ## Dashboard
 The server comes with a built-in dashboard which is simply some static resources stored in `/web/src/main/resources/frontend` and gets compiled into the server jar file. After running the server, the dashboard can be accessed at [http://localhost:8080](http://localhost:8080). Through the dashboard, you can access the server for your funnel and cohort analysis.
@@ -237,7 +237,7 @@ java -Deventhubhandler.username=${USERNAME} -Deventhubhandler.password=${PASSWOR
 ```
 
 ## Javascript Library
-The project comes with a javascript library which can be integrated with your website. Currently, the library depends on jQuery.
+The project comes with a javascript library which can be integrated with your website as a way to send events to your EventHub server. 
 
 ### How to run JS tests
 #### install [karma](http://karma-runner.github.io/0.12/index.html)
@@ -252,7 +252,7 @@ karma start karma.conf.js
 ```
 
 ### API
-The javascript library is extremely simple and heavily inspired by mixpanel. There are only five methods that developer needs to understand. Beware that behind the scene, the library maintains a queue backed by localStorage, buffers the events in the queue, and have a timer reguarly clear the queue. If the browser doesn't support localStorage, instead, a in-memory queue will be created as the EventHub is created. Also, our implementation relies on the server to track the timestamp of each event. Therefore, in the case of a browser session disconnected before all the events are sent, the remaining events will be sent in the next browser session and thus have the timestamp recorded as the next session starts.
+The javascript library is extremely simple and heavily inspired by mixpanel. There are only five methods that a developer needs to understand. Beware that behind the scenes, the library maintains a queue backed by localStorage, buffers the events in the queue, and has a timer reguarly clear the queue. If the browser doesn't support localStorage, a in-memory queue will be created as EventHub is created. Also, our implementation relies on the server to track the timestamp of each event. Therefore, in the case of a browser session disconnected before all the events are sent, the remaining events will be sent in the next browser session and thus have the timestamp recorded as the next session starts.
 
 #### window.newEventHub()
 The method will create an EventHub and start the timer which clears out the event queue in every second (default)
@@ -266,7 +266,7 @@ var eventHub = window.newEventHub(name, options);
 ```
 
 #### eventHub.track()
-The method enqueue the given event which will be cleared in batch at every flushInterval. Beware that if there is no identify method called before the track method is called, the library will automatically generate an user id which remain the same for the entire session (clear after the browser tab is closed), and send the generated user id along with the queued event. On the other hand, if there is an identify method called before the track method is called, the user information passed along with the identify method call will be merged to the queued event.
+This method enqueues the given event which will be cleared in batch at every flushInterval. Beware that if there is no identify method called before the track method is called, the library will automatically generate an user id which remain the same for the entire session (clears after the browser tab is closed), and send the generated user id along with the queued event. On the other hand, if `eventhub.identify()` is called before the track method is called, the user information passed along with the identify method call will be merged to the queued event.
 ```javascript
 eventHub.track("signup", {
   property_1: 'value1',
@@ -275,13 +275,13 @@ eventHub.track("signup", {
 ```
 
 #### eventHub.alias()
-The method links the given user to the automatically generated user. Typically, you only want to call this method once, and right after the user successfully signs up.
+This method links the given user to the automatically generated user. Typically, you only want to call this method once -- right after the user successfully signs up.
 ```javascript
 eventHub.alias('chengtao@codecademy.com');
 ```
 
 #### eventHub.identify()
-The method tells the library instead of using the automatically generated user information, use the given information instead.
+This method tells the library instead of using the automatically generated user information, use the given information instead.
 ```javascript
 eventHub.identify('chengtao@codecademy.com', {
   user_property_1: 'value1',
@@ -290,7 +290,7 @@ eventHub.identify('chengtao@codecademy.com', {
 ```
 
 #### eventHub.register()
-The method allows the developer to add additional information to the generated user.
+This method allows the developer to add additional information to the generated user.
 ```javascript
 eventHub.register({
   user_property_1: 'value1',
